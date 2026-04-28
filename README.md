@@ -36,11 +36,20 @@ debug panel is closed.
   ×0.40 below 500 px min-dimension, ×0.65 between 500 and 800 px. Presets
   re-apply the same scale.
 - For fullscreen, install as a PWA (Add to Home Screen).
-- **Tilt physics**: tick *Use device tilt* in the debug panel and the
-  logos will roll toward whichever physical edge is currently lower.
-  Rotating the device makes them tumble around as the gravity vector
-  swings. Strength is adjustable; iOS asks for permission on the first
-  enable. Off by default.
+- **Tilt + shake** (mobile sensors): both checkboxes default *on* on any
+  touch-primary device.
+  - **Tilt** uses DeviceOrientation: logos roll toward whichever
+    physical edge is currently lower. Rotating the device makes them
+    tumble around as the gravity vector swings. Strength is adjustable.
+  - **Shake** uses DeviceMotion: a sharp shake (linear acceleration
+    above the *Shake threshold* slider, default 18 m/s²) calls the same
+    Respawn action that the button does. There is an 800 ms cooldown so
+    a single shake fires once.
+  - On iOS 13+ the permission grant must come from a user gesture, so
+    on those browsers the listeners attach on the very first tap rather
+    than at page load (the panel status reads "Tap anywhere to enable"
+    until then).
+  - Both can be unticked individually if you only want one.
 
 ## Debug panel
 
