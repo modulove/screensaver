@@ -235,12 +235,29 @@
     <label>Bass intensity <span class="val" id="v_abass">0.00</span>
         <input type="range" id="s_abass" min="0" max="2" step="0.05" value="0">
     </label>
+    <select id="t_abass">
+        <option value="both">Bass &rarr; both logos</option>
+        <option value="logo1">Bass &rarr; logo1 only</option>
+        <option value="logo2">Bass &rarr; logo2 only</option>
+    </select>
+
     <label>Mid intensity <span class="val" id="v_amid">0.00</span>
         <input type="range" id="s_amid" min="0" max="2" step="0.05" value="0">
     </label>
+    <select id="t_amid">
+        <option value="both">Mid &rarr; both logos</option>
+        <option value="logo1">Mid &rarr; logo1 only</option>
+        <option value="logo2">Mid &rarr; logo2 only</option>
+    </select>
+
     <label>Treble intensity <span class="val" id="v_atreble">0.00</span>
         <input type="range" id="s_atreble" min="0" max="2" step="0.05" value="0">
     </label>
+    <select id="t_atreble">
+        <option value="both">Treble &rarr; both logos</option>
+        <option value="logo1">Treble &rarr; logo1 only</option>
+        <option value="logo2">Treble &rarr; logo2 only</option>
+    </select>
 
     <div class="fft">
         <div id="fft_bass"></div>
@@ -289,10 +306,15 @@ const params = {
     aberration:        0,     // radial chromatic aberration in uv units
     hue_intensity:     0,     // 0..1, scales the per-instance hue offset
     hue_speed:         0,     // hue cycle rate in Hz
-    // Audio reactivity sensitivities (0..2)
-    audio_bass:        0,
-    audio_mid:         0,
-    audio_treble:      0,
+    // Audio reactivity sensitivities (0..2) and per-band logo target.
+    // The target is one of "both" / "logo1" / "logo2"; effects of that
+    // band are only applied to floaters of the matching key.
+    audio_bass:          0,
+    audio_mid:           0,
+    audio_treble:        0,
+    audio_bass_target:   "both",
+    audio_mid_target:    "both",
+    audio_treble_target: "both",
 };
 
 // Scale defaults down on small screens (phones / tablets). Computed once
@@ -499,7 +521,14 @@ function spawn(key) {
 }
 
 function size_of(f, now) {
-    return params.base_size * (1 + params.depth_amp * Math.sin(now * f.depth_freq + f.depth_phase));
+    let s = params.base_size * (1 + params.depth_amp * Math.sin(now * f.depth_freq + f.depth_phase));
+    // Bass-driven beat pulse on size for floaters that match the bass
+    // band's logo target. With sensitivity 2 and full bass = 1.0 the
+    // logo grows up to 80% extra at peak.
+    if (typeof bands !== "undefined" && audioApplies(f, params.audio_bass_target)) {
+        s *= 1 + bands.bass * params.audio_bass * 0.40;
+    }
+    return s;
 }
 
 function clamp_speed(f) {
@@ -598,6 +627,7 @@ const PRESETS = {
         gravity: 0,
         trail_persistence: 0, aberration: 0, hue_intensity: 0, hue_speed: 0,
         audio_bass: 0, audio_mid: 0, audio_treble: 0,
+        audio_bass_target: "both", audio_mid_target: "both", audio_treble_target: "both",
     },
     vhs: {
         logo_count: 3, base_size: 350, depth_amp: 0.20, wobble_amp: 0.18,
@@ -606,6 +636,7 @@ const PRESETS = {
         gravity: 0,
         trail_persistence: 0.30, aberration: 0.040, hue_intensity: 0.20, hue_speed: 0.05,
         audio_bass: 0, audio_mid: 0, audio_treble: 0,
+        audio_bass_target: "both", audio_mid_target: "both", audio_treble_target: "both",
     },
     cosmic: {
         logo_count: 5, base_size: 400, depth_amp: 0.50, wobble_amp: 0.06,
@@ -614,6 +645,7 @@ const PRESETS = {
         gravity: 0,
         trail_persistence: 1.50, aberration: 0.015, hue_intensity: 0.80, hue_speed: 0.04,
         audio_bass: 0, audio_mid: 0, audio_treble: 0,
+        audio_bass_target: "both", audio_mid_target: "both", audio_treble_target: "both",
     },
     storm: {
         logo_count: 6, base_size: 220, depth_amp: 0.20, wobble_amp: 0.15,
@@ -622,6 +654,7 @@ const PRESETS = {
         gravity: 600,
         trail_persistence: 0.10, aberration: 0.020, hue_intensity: 0, hue_speed: 0,
         audio_bass: 0, audio_mid: 0, audio_treble: 0,
+        audio_bass_target: "both", audio_mid_target: "both", audio_treble_target: "both",
     },
     disco: {
         logo_count: 5, base_size: 200, depth_amp: 0.40, wobble_amp: 0.20,
@@ -630,6 +663,7 @@ const PRESETS = {
         gravity: 0,
         trail_persistence: 0.40, aberration: 0.010, hue_intensity: 1.0, hue_speed: 0.30,
         audio_bass: 1.0, audio_mid: 0.6, audio_treble: 0.8,
+        audio_bass_target: "logo1", audio_mid_target: "both", audio_treble_target: "logo2",
     },
 };
 
@@ -679,6 +713,26 @@ document.querySelectorAll("[data-gravity]").forEach((btn) => {
     });
 });
 
+// Per-band logo target dropdowns. Bound similarly to the slider table.
+const TARGET_BINDINGS = [
+    ["t_abass",   "audio_bass_target"],
+    ["t_amid",    "audio_mid_target"],
+    ["t_atreble", "audio_treble_target"],
+];
+for (const [id, key] of TARGET_BINDINGS) {
+    const el = document.getElementById(id);
+    el.value = params[key] || "both";
+    el.addEventListener("change", () => {
+        params[key] = el.value;
+        document.getElementById("s_preset").value = "";
+    });
+}
+
+// Helper: does this band's effect apply to the given floater?
+function audioApplies(f, target) {
+    return target === "both" || target === f.key;
+}
+
 document.getElementById("respawn").addEventListener("click", repopulate);
 
 function applyPreset(name) {
@@ -694,6 +748,10 @@ function applyPreset(name) {
         const display = document.getElementById("v_" + id);
         slider.value        = params[key];
         display.textContent = params[key].toFixed(dec);
+    }
+    for (const [id, key] of TARGET_BINDINGS) {
+        const el = document.getElementById(id);
+        if (el) el.value = params[key] || "both";
     }
     repopulate();
 }
@@ -1226,15 +1284,14 @@ window.addEventListener("mousemove", _showCursor);
 
         // ---- Audio reactivity ----
         // Audio bands modulate a few params on top of their slider values.
-        // Mapping: bass -> motion + wobble; mid -> hue cycle + slight depth
-        // pulse; treble -> chromatic aberration. All sensitivities are 0
-        // when audio is off, so this is a no-op without a source.
+        // Mapping is per-floater because each band has a logo target:
+        //   bass   -> motion (flow), wobble, size (in size_of)
+        //   mid    -> hue cycle rate
+        //   treble -> chromatic aberration + high-freq wobble shimmer
+        // All sensitivities are 0 when audio is off, so this is a no-op
+        // without a source.
         sampleAudio();
         updateFftDisplay();
-        const live_flow   = params.flow_strength + bands.bass   * params.audio_bass   * 200;
-        const live_wobble = params.wobble_amp    + bands.bass   * params.audio_bass   * 0.10;
-        const live_hspd   = params.hue_speed     + bands.mid    * params.audio_mid    * 1.0;
-        const live_aber   = params.aberration    + bands.treble * params.audio_treble * 0.05;
 
         // ---- Physics step ----
         // Tilt and shake both contribute extra accelerations on top of
@@ -1245,6 +1302,8 @@ window.addEventListener("mousemove", _showCursor);
         const shakeAx = shakeVec.x * params.shake_strength;
         const shakeAy = shakeVec.y * params.shake_strength;
         for (const f of floaters) {
+            const bassFor = audioApplies(f, params.audio_bass_target) ? bands.bass : 0;
+            const live_flow = params.flow_strength + bassFor * params.audio_bass * 200;
             const fx = live_flow * Math.sin(now * f.flow_fx + f.flow_phx);
             const fy = live_flow * Math.cos(now * f.flow_fy + f.flow_phy);
             f.vel_x = (f.vel_x + (fx + tiltAx + shakeAx) * dt)                    * (1 - params.damping * dt);
@@ -1295,8 +1354,6 @@ window.addEventListener("mousemove", _showCursor);
         gl.vertexAttribPointer(A_UV,  2, gl.FLOAT, false, 16, 8);
 
         gl.uniform1f(U_TIME,   now);
-        gl.uniform1f(U_WOBBLE, live_wobble);
-        gl.uniform1f(U_ABER,   live_aber);
         gl.uniform2f(U_SCREEN, canvas.width, canvas.height);
         gl.activeTexture(gl.TEXTURE0);
         gl.uniform1i(U_TEX, 0);
@@ -1313,6 +1370,23 @@ window.addEventListener("mousemove", _showCursor);
                 f.cx,      f.cy,     1,
             ]);
 
+            // Per-floater audio modulation. Each band only applies if
+            // this floater's logo matches the band's target.
+            const bassFor   = audioApplies(f, params.audio_bass_target)   ? bands.bass   : 0;
+            const midFor    = audioApplies(f, params.audio_mid_target)    ? bands.mid    : 0;
+            const trebleFor = audioApplies(f, params.audio_treble_target) ? bands.treble : 0;
+            // Wobble: bass is the dominant driver (kick deformation),
+            // treble adds a finer high-frequency shimmer (hi-hats).
+            const live_wobble = params.wobble_amp
+                              + bassFor   * params.audio_bass   * 0.20
+                              + trebleFor * params.audio_treble * 0.08;
+            const live_aber   = params.aberration
+                              + trebleFor * params.audio_treble * 0.08;
+            const live_hspd   = params.hue_speed
+                              + midFor    * params.audio_mid    * 1.0;
+
+            gl.uniform1f(U_WOBBLE, live_wobble);
+            gl.uniform1f(U_ABER,   live_aber);
             const hue = (f.hue_offset + now * live_hspd) * 2 * Math.PI * params.hue_intensity;
             gl.uniform1f(U_HUE, hue);
             gl.uniformMatrix3fv(U_XFORM, false, xform);

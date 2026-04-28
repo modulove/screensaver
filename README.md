@@ -93,11 +93,15 @@ Sections, top to bottom:
   speakers and into the analyser.
 
 Three sensitivity sliders (Bass / Mid / Treble, 0–2) control the
-modulation:
+modulation. Each band has a logo-target dropdown right below it (*both
+logos* / *logo1 only* / *logo2 only*) so you can route effects to one
+shape and leave the other clean:
 
-- Bass → `flow_strength` + `wobble_amp`
+- Bass → `flow_strength` (motion) + `wobble_amp` (deformation) +
+  size pulse (logos grow up to ~80% on a hard kick at full sensitivity)
 - Mid → `hue_speed`
-- Treble → `aberration`
+- Treble → `aberration` + a smaller high-frequency wobble shimmer for
+  hi-hats / cymbals
 
 Sensitivities at 0 = no effect even with a source connected. The thin
 bars under the sliders show the current band levels.
