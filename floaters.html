@@ -33,7 +33,16 @@
 <title>Modulove logo floaters</title>
 <style>
   html, body { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100%; }
-  body { display: block; }
+  body {
+      display: block;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+  }
+  /* Re-enable normal touch interactions and text selection inside the
+     debug panel so range sliders and the file picker still respond. */
+  #debug, #debug * { touch-action: auto; -webkit-user-select: auto; user-select: auto; }
   canvas { display: block; width: 100vw; height: 100vh; }
 
   #debug {
@@ -239,7 +248,7 @@
     <div id="midi_list" class="midi-list">No mappings.</div>
     <div id="midi_status" class="midi-status">Initialising&hellip;</div>
 
-    <div class="hint"><b>D</b> toggle this panel &middot; <b>F</b> fullscreen</div>
+    <div class="hint"><b>D</b> toggle this panel &middot; <b>F</b> fullscreen<br>or long-press anywhere on the screen</div>
 </div>
 
 <script>
@@ -269,6 +278,21 @@ const params = {
     audio_mid:         0,
     audio_treble:      0,
 };
+
+// Scale defaults down on small screens (phones / tablets). Computed once
+// at boot from the initial viewport min-dimension; affects the initial
+// params and is re-applied to base_size / logo_count whenever a preset
+// is loaded so presets remain usable on mobile.
+const SCREEN_SCALE = (function () {
+    const minDim = Math.min(window.innerWidth, window.innerHeight);
+    if (minDim < 500) return 0.40;   // phone
+    if (minDim < 800) return 0.65;   // tablet
+    return 1.0;                       // desktop
+})();
+if (SCREEN_SCALE < 1) {
+    params.base_size  = Math.round(params.base_size * SCREEN_SCALE);
+    params.logo_count = Math.max(1, Math.round(params.logo_count * SCREEN_SCALE));
+}
 
 // ---- Embedded logo PNGs (base64) -------------------------------------
 const LOGO_DATA = {
@@ -643,6 +667,10 @@ function applyPreset(name) {
     const preset = PRESETS[name];
     if (!preset) return;
     Object.assign(params, preset);
+    if (SCREEN_SCALE < 1) {
+        params.base_size  = Math.round(params.base_size * SCREEN_SCALE);
+        params.logo_count = Math.max(1, Math.round(params.logo_count * SCREEN_SCALE));
+    }
     for (const [id, key, dec] of SLIDER_BINDINGS) {
         const slider  = document.getElementById("s_" + id);
         const display = document.getElementById("v_" + id);
@@ -667,6 +695,47 @@ window.addEventListener("keydown", (e) => {
             document.exitFullscreen?.();
         }
     }
+});
+
+// Touch equivalent for the D key: a single-finger long press on the
+// canvas (anywhere outside the debug panel) toggles the panel. Keeps
+// the screensaver chrome-free on phones / tablets.
+let _touchTimer = null;
+let _touchStartX = 0, _touchStartY = 0;
+const LONG_PRESS_MS = 600;
+const LONG_PRESS_TOL = 12;
+window.addEventListener("touchstart", (e) => {
+    if (e.target.closest && e.target.closest("#debug")) return;
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    _touchStartX = t.clientX;
+    _touchStartY = t.clientY;
+    if (_touchTimer) clearTimeout(_touchTimer);
+    _touchTimer = setTimeout(() => {
+        document.getElementById("debug").classList.toggle("hidden");
+        _touchTimer = null;
+    }, LONG_PRESS_MS);
+}, { passive: true });
+window.addEventListener("touchmove", (e) => {
+    if (!_touchTimer || e.touches.length === 0) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - _touchStartX) > LONG_PRESS_TOL ||
+        Math.abs(t.clientY - _touchStartY) > LONG_PRESS_TOL) {
+        clearTimeout(_touchTimer);
+        _touchTimer = null;
+    }
+}, { passive: true });
+window.addEventListener("touchend", () => {
+    if (_touchTimer) { clearTimeout(_touchTimer); _touchTimer = null; }
+}, { passive: true });
+window.addEventListener("touchcancel", () => {
+    if (_touchTimer) { clearTimeout(_touchTimer); _touchTimer = null; }
+}, { passive: true });
+
+// Suppress the long-press "Save image" / context menu outside the debug
+// panel so the long-press gesture doesn't get hijacked by the browser.
+window.addEventListener("contextmenu", (e) => {
+    if (!(e.target.closest && e.target.closest("#debug"))) e.preventDefault();
 });
 
 // ---- Audio reactivity ------------------------------------------------

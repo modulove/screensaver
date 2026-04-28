@@ -29,6 +29,14 @@ need a secure context), load from here https://dl.modulove.de/screensaver/
 The cursor auto-hides three seconds after the last mouse move while the
 debug panel is closed.
 
+## Phone / tablet
+
+- **Long-press** anywhere on the canvas (~600 ms) toggles the debug panel.
+- Defaults for `Base size` and `Count per logo` auto-scale at boot:
+  ×0.40 below 500 px min-dimension, ×0.65 between 500 and 800 px. Presets
+  re-apply the same scale.
+- For fullscreen, install as a PWA (Add to Home Screen).
+
 ## Debug panel
 
 Sections, top to bottom:
