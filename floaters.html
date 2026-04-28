@@ -201,8 +201,8 @@
     <label>Tilt strength <span class="val" id="v_tiltstr">600</span>
         <input type="range" id="s_tiltstr" min="0" max="2000" step="10" value="600">
     </label>
-    <label>Shake threshold (m/s&sup2;) <span class="val" id="v_shaketh">18</span>
-        <input type="range" id="s_shaketh" min="5" max="50" step="1" value="18">
+    <label>Shake strength <span class="val" id="v_shakestr">30</span>
+        <input type="range" id="s_shakestr" min="0" max="200" step="1" value="30">
     </label>
     <div id="sensor_status" class="midi-status">Off.</div>
 
@@ -283,7 +283,7 @@ const params = {
     spin_collision:    80,
     gravity:           0,
     tilt_strength:     600,   // device-tilt-driven gravity magnitude (px/s^2)
-    shake_threshold:   18,    // motion magnitude (m/s^2) that triggers a respawn
+    shake_strength:    30,    // pixels of acceleration per m/s^2 of device motion
     // Effects
     trail_persistence: 0,     // seconds; 0 = full clear each frame
     aberration:        0,     // radial chromatic aberration in uv units
@@ -647,7 +647,7 @@ const SLIDER_BINDINGS = [
     ["spinc",    "spin_collision",     0],
     ["gravity",  "gravity",            0],
     ["tiltstr",  "tilt_strength",      0],
-    ["shaketh",  "shake_threshold",    0],
+    ["shakestr", "shake_strength",     0],
     ["trail",    "trail_persistence",  2],
     ["ca",       "aberration",         3],
     ["hint",     "hue_intensity",      2],
@@ -715,25 +715,34 @@ window.addEventListener("keydown", (e) => {
     }
 });
 
-// Touch equivalent for the D key: a single-finger long press on the
-// canvas (anywhere outside the debug panel) toggles the panel. Keeps
-// the screensaver chrome-free on phones / tablets.
+// Touch gestures on the canvas (outside the debug panel):
+//   * Long press (~600 ms, single finger, no drift) toggles the panel.
+//   * Double tap (two quick taps within 350 ms) calls Respawn.
 let _touchTimer = null;
-let _touchStartX = 0, _touchStartY = 0;
-const LONG_PRESS_MS = 600;
+let _touchStartX = 0, _touchStartY = 0, _touchStartT = 0;
+let _longPressFired = false;
+let _lastTapAt = 0;
+const LONG_PRESS_MS  = 600;
 const LONG_PRESS_TOL = 12;
+const TAP_MAX_MS     = 300;
+const DOUBLE_TAP_MS  = 350;
+
 window.addEventListener("touchstart", (e) => {
     if (e.target.closest && e.target.closest("#debug")) return;
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     _touchStartX = t.clientX;
     _touchStartY = t.clientY;
+    _touchStartT = performance.now();
+    _longPressFired = false;
     if (_touchTimer) clearTimeout(_touchTimer);
     _touchTimer = setTimeout(() => {
         document.getElementById("debug").classList.toggle("hidden");
         _touchTimer = null;
+        _longPressFired = true;
     }, LONG_PRESS_MS);
 }, { passive: true });
+
 window.addEventListener("touchmove", (e) => {
     if (!_touchTimer || e.touches.length === 0) return;
     const t = e.touches[0];
@@ -743,17 +752,38 @@ window.addEventListener("touchmove", (e) => {
         _touchTimer = null;
     }
 }, { passive: true });
-window.addEventListener("touchend", () => {
+
+window.addEventListener("touchend", (e) => {
+    const wasLongPress = _longPressFired;
+    _longPressFired = false;
     if (_touchTimer) { clearTimeout(_touchTimer); _touchTimer = null; }
+    if (wasLongPress) return;                                           // long press already toggled panel
+    if (e.target.closest && e.target.closest("#debug")) return;
+    const now = performance.now();
+    if (now - _touchStartT > TAP_MAX_MS) return;                        // touch held too long for a tap
+    if (now - _lastTapAt < DOUBLE_TAP_MS) {
+        repopulate();
+        _lastTapAt = 0;
+    } else {
+        _lastTapAt = now;
+    }
 }, { passive: true });
+
 window.addEventListener("touchcancel", () => {
     if (_touchTimer) { clearTimeout(_touchTimer); _touchTimer = null; }
+    _longPressFired = false;
 }, { passive: true });
 
 // Suppress the long-press "Save image" / context menu outside the debug
 // panel so the long-press gesture doesn't get hijacked by the browser.
 window.addEventListener("contextmenu", (e) => {
     if (!(e.target.closest && e.target.closest("#debug"))) e.preventDefault();
+});
+
+// Desktop equivalent of double-tap-to-respawn.
+window.addEventListener("dblclick", (e) => {
+    if (e.target.closest && e.target.closest("#debug")) return;
+    repopulate();
 });
 
 // ---- Mobile sensors --------------------------------------------------
@@ -764,18 +794,19 @@ window.addEventListener("contextmenu", (e) => {
 //     Multiplied by tilt_strength and added as an extra acceleration
 //     to every floater.
 //
-//   * Shake-to-respawn (DeviceMotion): when the linear acceleration
-//     (gravity removed) magnitude exceeds shake_threshold for an
-//     instant, repopulate() is called to randomise the floaters. A
-//     short cooldown prevents rapid re-triggers.
+//   * Shake physics (DeviceMotion): the linear acceleration vector
+//     (gravity removed) is orientation-corrected into screen frame and
+//     applied as an extra force on every floater. Below a small noise
+//     floor it's clamped to zero so the device sitting still doesn't
+//     drift the logos.
 //
 // On iOS 13+ both APIs need a permission grant from a user gesture;
 // elsewhere they just work after addEventListener.
-const tiltVec = { x: 0, y: 0 };
+const tiltVec  = { x: 0, y: 0 };
+const shakeVec = { x: 0, y: 0 };
 let tiltListening  = false;
 let shakeListening = false;
-let lastShakeAt    = 0;
-const SHAKE_COOLDOWN_MS = 800;
+const SHAKE_NOISE_FLOOR = 2.0;  // m/s^2 below which sensor noise is ignored
 
 function updateSensorStatus(extra) {
     const el = document.getElementById("sensor_status");
@@ -809,17 +840,26 @@ function onDeviceOrientation(e) {
     tiltVec.y = Math.sin(by * Math.PI / 180);
 }
 
-function onDeviceMotionShake(e) {
+function onDeviceMotionAccel(e) {
     const a = e.acceleration;  // motion only, gravity removed
-    if (!a || a.x === null) return;
-    const mag = Math.sqrt((a.x || 0) * (a.x || 0)
-                        + (a.y || 0) * (a.y || 0)
-                        + (a.z || 0) * (a.z || 0));
-    if (mag <= params.shake_threshold) return;
-    const now = performance.now();
-    if (now - lastShakeAt < SHAKE_COOLDOWN_MS) return;
-    lastShakeAt = now;
-    repopulate();
+    if (!a || a.x === null) { shakeVec.x = 0; shakeVec.y = 0; return; }
+    const ax = a.x || 0, ay = a.y || 0, az = a.z || 0;
+    const mag = Math.sqrt(ax * ax + ay * ay + az * az);
+    if (mag < SHAKE_NOISE_FLOOR) { shakeVec.x = 0; shakeVec.y = 0; return; }
+
+    // Same screen-orientation correction as tilt: gamma plays the role
+    // of device-x, beta plays the role of device-y, so ax/ay swizzle the
+    // same way for the accelerometer.
+    let angle = (window.screen && window.screen.orientation && window.screen.orientation.angle);
+    if (angle === undefined || angle === null) angle = window.orientation || 0;
+    angle = ((angle % 360) + 360) % 360;
+    let sx, sy;
+    if (angle === 90)       { sx =  ay; sy = -ax; }
+    else if (angle === 270) { sx = -ay; sy =  ax; }
+    else if (angle === 180) { sx = -ax; sy = -ay; }
+    else                    { sx =  ax; sy =  ay; }
+    shakeVec.x = sx;
+    shakeVec.y = sy;
 }
 
 async function enableTilt() {
@@ -878,15 +918,17 @@ async function enableShake() {
             return;
         }
     }
-    window.addEventListener("devicemotion", onDeviceMotionShake);
+    window.addEventListener("devicemotion", onDeviceMotionAccel);
     shakeListening = true;
     updateSensorStatus();
 }
 
 function disableShake() {
     if (!shakeListening) return;
-    window.removeEventListener("devicemotion", onDeviceMotionShake);
+    window.removeEventListener("devicemotion", onDeviceMotionAccel);
     shakeListening = false;
+    shakeVec.x = 0;
+    shakeVec.y = 0;
     updateSensorStatus();
 }
 
@@ -1195,15 +1237,18 @@ window.addEventListener("mousemove", _showCursor);
         const live_aber   = params.aberration    + bands.treble * params.audio_treble * 0.05;
 
         // ---- Physics step ----
-        // Tilt acceleration is added on top of flow forces and gravity.
-        // tiltVec is zero unless the user enabled the Tilt checkbox.
-        const tiltAx = tiltVec.x * params.tilt_strength;
-        const tiltAy = tiltVec.y * params.tilt_strength;
+        // Tilt and shake both contribute extra accelerations on top of
+        // flow forces and gravity. Both vectors are zero when their
+        // respective sensors aren't enabled or are below the noise floor.
+        const tiltAx  = tiltVec.x  * params.tilt_strength;
+        const tiltAy  = tiltVec.y  * params.tilt_strength;
+        const shakeAx = shakeVec.x * params.shake_strength;
+        const shakeAy = shakeVec.y * params.shake_strength;
         for (const f of floaters) {
             const fx = live_flow * Math.sin(now * f.flow_fx + f.flow_phx);
             const fy = live_flow * Math.cos(now * f.flow_fy + f.flow_phy);
-            f.vel_x = (f.vel_x + (fx + tiltAx) * dt)                    * (1 - params.damping * dt);
-            f.vel_y = (f.vel_y + (fy + tiltAy + params.gravity) * dt)   * (1 - params.damping * dt);
+            f.vel_x = (f.vel_x + (fx + tiltAx + shakeAx) * dt)                    * (1 - params.damping * dt);
+            f.vel_y = (f.vel_y + (fy + tiltAy + shakeAy + params.gravity) * dt)   * (1 - params.damping * dt);
             clamp_speed(f);
 
             f.cx    += f.vel_x * dt;

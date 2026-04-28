@@ -32,6 +32,8 @@ debug panel is closed.
 ## Phone / tablet
 
 - **Long-press** anywhere on the canvas (~600 ms) toggles the debug panel.
+- **Double-tap** anywhere outside the debug panel triggers a respawn
+  (same as the Respawn button, same as a desktop double-click).
 - Defaults for `Base size` and `Count per logo` auto-scale at boot:
   ×0.40 below 500 px min-dimension, ×0.65 between 500 and 800 px. Presets
   re-apply the same scale.
@@ -40,11 +42,12 @@ debug panel is closed.
   touch-primary device.
   - **Tilt** uses DeviceOrientation: logos roll toward whichever
     physical edge is currently lower. Rotating the device makes them
-    tumble around as the gravity vector swings. Strength is adjustable.
-  - **Shake** uses DeviceMotion: a sharp shake (linear acceleration
-    above the *Shake threshold* slider, default 18 m/s²) calls the same
-    Respawn action that the button does. There is an 800 ms cooldown so
-    a single shake fires once.
+    tumble around as the gravity vector swings.
+  - **Shake** uses DeviceMotion: the linear acceleration vector
+    (gravity removed) is orientation-corrected into screen frame and
+    applied as an extra force on every floater. Shaking the device
+    kicks the logos around in the direction of the shake; below a small
+    noise floor the device sitting still does nothing.
   - On iOS 13+ the permission grant must come from a user gesture, so
     on those browsers the listeners attach on the very first tap rather
     than at page load (the panel status reads "Tap anywhere to enable"
