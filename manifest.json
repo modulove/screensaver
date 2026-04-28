@@ -1,0 +1,17 @@
+{
+    "name": "Modulove logo floaters",
+    "short_name": "Floaters",
+    "description": "A tunable WebGL screensaver with motion physics, depth pulse, chromatic aberration, hue cycling and trails.",
+    "start_url": "./floaters.html",
+    "scope": "./",
+    "display": "standalone",
+    "display_override": ["fullscreen", "standalone", "minimal-ui"],
+    "orientation": "any",
+    "background_color": "#000000",
+    "theme_color": "#000000",
+    "categories": ["entertainment", "graphics"],
+    "icons": [
+        { "src": "logo1.png", "sizes": "any", "type": "image/png", "purpose": "any" },
+        { "src": "logo2.png", "sizes": "any", "type": "image/png", "purpose": "any" }
+    ]
+}
