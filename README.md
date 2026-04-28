@@ -36,6 +36,11 @@ debug panel is closed.
   ×0.40 below 500 px min-dimension, ×0.65 between 500 and 800 px. Presets
   re-apply the same scale.
 - For fullscreen, install as a PWA (Add to Home Screen).
+- **Tilt physics**: tick *Use device tilt* in the debug panel and the
+  logos will roll toward whichever physical edge is currently lower.
+  Rotating the device makes them tumble around as the gravity vector
+  swings. Strength is adjustable; iOS asks for permission on the first
+  enable. Off by default.
 
 ## Debug panel
 

@@ -192,6 +192,16 @@
         <button data-gravity="980">Earth</button>
     </div>
 
+    <h4>Tilt physics (mobile)</h4>
+
+    <div class="checks">
+        <label><input type="checkbox" id="tilt_enable"> Use device tilt</label>
+    </div>
+    <label>Tilt strength <span class="val" id="v_tiltstr">600</span>
+        <input type="range" id="s_tiltstr" min="0" max="2000" step="10" value="600">
+    </label>
+    <div id="tilt_status" class="midi-status">Off &middot; tap the checkbox on a phone / tablet.</div>
+
     <h4>Effects</h4>
 
     <label>Trail persistence (s) <span class="val" id="v_trail">0.00</span>
@@ -268,6 +278,7 @@ const params = {
     spin_bounce:       60,
     spin_collision:    80,
     gravity:           0,
+    tilt_strength:     600,   // device-tilt-driven gravity magnitude (px/s^2)
     // Effects
     trail_persistence: 0,     // seconds; 0 = full clear each frame
     aberration:        0,     // radial chromatic aberration in uv units
@@ -630,6 +641,7 @@ const SLIDER_BINDINGS = [
     ["spinb",    "spin_bounce",        0],
     ["spinc",    "spin_collision",     0],
     ["gravity",  "gravity",            0],
+    ["tiltstr",  "tilt_strength",      0],
     ["trail",    "trail_persistence",  2],
     ["ca",       "aberration",         3],
     ["hint",     "hue_intensity",      2],
@@ -736,6 +748,83 @@ window.addEventListener("touchcancel", () => {
 // panel so the long-press gesture doesn't get hijacked by the browser.
 window.addEventListener("contextmenu", (e) => {
     if (!(e.target.closest && e.target.closest("#debug"))) e.preventDefault();
+});
+
+// ---- Tilt physics (DeviceOrientation API) ----------------------------
+// Maps device tilt to a 2D gravity vector applied as an extra force on
+// every floater. Logos roll toward whatever physical edge of the device
+// is currently lower. Rotating the device makes the gravity vector swing
+// around, which (combined with collisions and spin-on-bounce) gives a
+// natural tumbling effect.
+const tiltVec = { x: 0, y: 0 };
+let tiltListening = false;
+
+function setTiltStatus(text) {
+    const el = document.getElementById("tilt_status");
+    if (el) el.textContent = text;
+}
+
+function onDeviceOrientation(e) {
+    if (e.beta === null || e.gamma === null) return;
+    // Normalise screen orientation to one of 0/90/180/270 so the tilt
+    // vector follows the screen's current "down".
+    let angle = (window.screen && window.screen.orientation && window.screen.orientation.angle);
+    if (angle === undefined || angle === null) angle = window.orientation || 0;
+    angle = ((angle % 360) + 360) % 360;
+
+    let bx, by;
+    if (angle === 90)       { bx =  e.beta;   by = -e.gamma; }
+    else if (angle === 270) { bx = -e.beta;   by =  e.gamma; }
+    else if (angle === 180) { bx = -e.gamma;  by = -e.beta;  }
+    else                    { bx =  e.gamma;  by =  e.beta;  }   // 0 / portrait
+
+    // Clamp beta into [-90, 90] so flipping the device doesn't flip
+    // gravity in a counterintuitive way; sin(angle) gives a smooth
+    // 0 -> 1 mapping over [0, 90].
+    by = Math.max(-90, Math.min(90, by));
+    tiltVec.x = Math.sin(bx * Math.PI / 180);
+    tiltVec.y = Math.sin(by * Math.PI / 180);
+}
+
+async function enableTilt() {
+    if (tiltListening) return;
+    if (typeof DeviceOrientationEvent === "undefined") {
+        setTiltStatus("Device orientation API not available.");
+        document.getElementById("tilt_enable").checked = false;
+        return;
+    }
+    // iOS 13+ requires explicit permission from a user gesture.
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        try {
+            const res = await DeviceOrientationEvent.requestPermission();
+            if (res !== "granted") {
+                setTiltStatus("Permission denied.");
+                document.getElementById("tilt_enable").checked = false;
+                return;
+            }
+        } catch (err) {
+            setTiltStatus("Permission error: " + err.message);
+            document.getElementById("tilt_enable").checked = false;
+            return;
+        }
+    }
+    window.addEventListener("deviceorientation", onDeviceOrientation);
+    tiltListening = true;
+    setTiltStatus("Active.");
+}
+
+function disableTilt() {
+    if (!tiltListening) return;
+    window.removeEventListener("deviceorientation", onDeviceOrientation);
+    tiltListening = false;
+    tiltVec.x = 0;
+    tiltVec.y = 0;
+    setTiltStatus("Off.");
+}
+
+document.getElementById("tilt_enable").addEventListener("change", (e) => {
+    if (e.target.checked) enableTilt();
+    else disableTilt();
 });
 
 // ---- Audio reactivity ------------------------------------------------
@@ -1004,11 +1093,15 @@ window.addEventListener("mousemove", _showCursor);
         const live_aber   = params.aberration    + bands.treble * params.audio_treble * 0.05;
 
         // ---- Physics step ----
+        // Tilt acceleration is added on top of flow forces and gravity.
+        // tiltVec is zero unless the user enabled the Tilt checkbox.
+        const tiltAx = tiltVec.x * params.tilt_strength;
+        const tiltAy = tiltVec.y * params.tilt_strength;
         for (const f of floaters) {
             const fx = live_flow * Math.sin(now * f.flow_fx + f.flow_phx);
             const fy = live_flow * Math.cos(now * f.flow_fy + f.flow_phy);
-            f.vel_x = (f.vel_x + fx * dt)                    * (1 - params.damping * dt);
-            f.vel_y = (f.vel_y + (fy + params.gravity) * dt) * (1 - params.damping * dt);
+            f.vel_x = (f.vel_x + (fx + tiltAx) * dt)                    * (1 - params.damping * dt);
+            f.vel_y = (f.vel_y + (fy + tiltAy + params.gravity) * dt)   * (1 - params.damping * dt);
             clamp_speed(f);
 
             f.cx    += f.vel_x * dt;
