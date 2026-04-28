@@ -2,13 +2,7 @@
 
 Animated WebGL logo screensaver. A single self-contained HTML file with a
 debug panel for live tuning, four visual-effect knobs, audio reactivity
-(microphone or audio file), WebMIDI control over every parameter, and
-PWA installability for desktop.
-
-Ported from the info-beamer Pi signage package at
-<https://github.com/modulove/package-shader-example> — same physics and
-fragment shader, expanded with a browser-only debug UI and an effect
-bundle (trails, chromatic aberration, hue cycling, depth pulse).
+(microphone or audio file), WebMIDI control over every parameter.
 
 ## Files
 
@@ -21,21 +15,11 @@ bundle (trails, chromatic aberration, hue cycling, depth pulse).
 
 ## Quick start
 
-`floaters.html` works straight from `file://` for quick previews and OBS
-captures — both PNGs are embedded as base64.
+`floaters.html` works straight from `file://` for quick preview
 
 For PWA install, microphone audio, or audio-file playback (all of which
-need a secure context), serve the folder over HTTP:
+need a secure context), load from here https://dl.modulove.de/screensaver/
 
-```
-cd path/to/this/folder
-python -m http.server 8000
-```
-
-Open <http://localhost:8000/floaters.html> in Chrome or Edge. An
-**Install** option appears in the address bar / three-dot menu. The
-installed app launches as a chromeless window and prefers fullscreen via
-`display_override` in the manifest.
 
 ## Keyboard
 
@@ -119,43 +103,3 @@ The device dropdown lets you accept messages from any input
 to each slider's `min..max` range and dispatched as synthetic `input`
 events, so all the existing slider hooks (preset reset, value display,
 audio path) run as if you'd dragged the slider yourself.
-
-## Recording video
-
-For pixel-exact captures (no OBS scaling) launch Chrome in app mode at
-the desired window size. The `+25` on each height accounts for the
-Windows title bar in app mode.
-
-```
-chrome.exe --app="file:///full/path/to/floaters.html" --window-size=1920,1105   # 1920x1080 inner
-chrome.exe --app="file:///full/path/to/floaters.html" --window-size=1080,1945   # 1080x1920 portrait
-chrome.exe --app="file:///full/path/to/floaters.html" --window-size=1920,1225   # 1920x1200
-```
-
-Then OBS Window Capture grabs the canvas at native pixels.
-`requestAnimationFrame` runs at the monitor refresh rate; OBS at 30 fps
-just samples it down.
-
-## Tweaking
-
-In `floaters.html`:
-
-- `params` (top of `<script>`) is the live parameter object the debug
-  panel mutates. Add a key here, add a slider with id `s_<suffix>` and
-  value span `v_<suffix>`, and add an entry to `SLIDER_BINDINGS`.
-- `PRESETS` is the named-preset list — add or edit values and they show
-  up in the dropdown automatically.
-- The fragment shader is the `FS_LOGO` template string: layered-sine
-  wobble + 3-tap radial chromatic aberration + Rodrigues hue rotation
-  around the achromatic axis.
-- `LOGO_DATA` holds the base64-embedded PNGs. To swap logos, base64-encode
-  new PNGs and replace those data URIs (or run the same PowerShell
-  substitution recipe used during the original build).
-
-## Related
-
-- **Info-beamer Pi package**:
-  <https://github.com/modulove/package-shader-example> — the original
-  Lua + GLSL version that runs natively on Raspberry Pi via the
-  [info-beamer](https://info-beamer.com) hosted service. The fragment
-  shader and physics here are a direct port of that.
